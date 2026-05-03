@@ -12,9 +12,13 @@ type DonationPayload = {
 
 export default function AlertPage() {
   const [alert, setAlert] = useState<DonationPayload | null>(null);
+  const [progress, setProgress] = useState(100);
   const queueRef = useRef<DonationPayload[]>([]);
   const isShowingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const durationRef = useRef<number>(0);
 
   const youtubeEmbed = useMemo(() => {
     if (!alert?.mediaUrl) return null;
@@ -25,17 +29,45 @@ export default function AlertPage() {
 
   const getDuration = (payload: DonationPayload): number => {
     if (payload.mediaUrl) {
-      if (payload.amount >= 50) return 50000;
-      if (payload.amount >= 25) return 30000;
-      return 20000;
+      if (payload.amount >= 50000) return 50000;
+      if (payload.amount >= 30000) return 30000;
+      if (payload.amount >= 25000) return 20000;
+      return 10000;
     }
     return 5000;
+  };
+
+  const startProgressBar = (duration: number) => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    startTimeRef.current = performance.now();
+    durationRef.current = duration;
+    setProgress(100);
+
+    const tick = (now: number) => {
+      const elapsed = now - startTimeRef.current;
+      const remaining = Math.max(0, 100 - (elapsed / durationRef.current) * 100);
+      setProgress(remaining);
+      if (remaining > 0) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  const stopProgressBar = () => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setProgress(100);
   };
 
   const showNext = () => {
     if (queueRef.current.length === 0) {
       isShowingRef.current = false;
       setAlert(null);
+      stopProgressBar();
       return;
     }
 
@@ -44,9 +76,11 @@ export default function AlertPage() {
     setAlert(next);
 
     const duration = getDuration(next);
+    startProgressBar(duration);
+
     timerRef.current = setTimeout(() => {
       setAlert(null);
-      // Beri jeda kecil antar alert agar animasi keluar terlihat
+      stopProgressBar();
       setTimeout(() => showNext(), 500);
     }, duration);
   };
@@ -59,9 +93,12 @@ export default function AlertPage() {
   };
 
   useEffect(() => {
-    // Subscribe ke Supabase Realtime channel "donation-alerts"
     const channel = supabase
-      .channel("donation-alerts")
+      .channel("donation-alerts", {
+        config: {
+          broadcast: { self: true }, 
+        },
+      })
       .on(
         "broadcast",
         { event: "donation" },
@@ -74,6 +111,7 @@ export default function AlertPage() {
     return () => {
       supabase.removeChannel(channel);
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
@@ -98,7 +136,7 @@ export default function AlertPage() {
                 <p className="text-3xl font-bold text-white leading-tight">
                   <span className="text-cyan-300">{alert.user}</span>
                   <span className="text-zinc-300 font-medium"> donated </span>
-                  <span className="text-cyan-300">${alert.amount}</span>
+                  <span className="text-cyan-300">Rp.{alert.amount.toLocaleString("id-ID")}</span>
                 </p>
                 {alert.message && (
                   <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-6 py-5 text-zinc-200 text-lg leading-relaxed inline-block max-w-xl">
@@ -119,7 +157,7 @@ export default function AlertPage() {
                     {alert.user}
                   </h2>
                   <p className="text-zinc-300 text-3xl mt-2">
-                    donated <span className="text-cyan-300 font-semibold">${alert.amount}</span>
+                    donated <span className="text-cyan-300 font-semibold">Rp.{alert.amount.toLocaleString("id-ID")}</span>
                   </p>
                   {alert.message && (
                     <p className="text-zinc-400 text-lg mt-4 leading-relaxed max-w-2xl">
@@ -129,6 +167,14 @@ export default function AlertPage() {
                 </div>
               </div>
             )}
+
+            {/* Progress Bar */}
+            <div className="h-1 w-full bg-white/10">
+              <div
+                className="h-full bg-cyan-400 transition-none"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
         </div>
       )}

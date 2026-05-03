@@ -3,15 +3,27 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import Script from "next/script";
+import { send } from "process";
 
+declare global {
+  interface Window {
+    snap: {
+      pay: (token: string, options?: Record<string, unknown>) => void;
+    };
+  }
+}
 export default function TopupPage() {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
+
 
   const [name, setName] = useState("");
   const [amount, setAmount] = useState(25);
   const [message, setMessage] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
+
 
   useEffect(() => {
     // Bergabung ke channel Supabase Realtime "donation-alerts"
@@ -28,7 +40,7 @@ export default function TopupPage() {
     };
   }, []);
 
-  const sendDonation = async () => {
+  const sendAlert = async () => {
     if (!name || !channelRef.current) return;
 
     await channelRef.current.send({
@@ -43,7 +55,49 @@ export default function TopupPage() {
     });
   };
 
+  const sendDonation = async () => {
+    if (!name || loading) return;
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/midtrans/create-transaction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, amount, message, mediaUrl }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create transaction");
+
+      // Buka Snap popup
+      window.snap.pay(data.token, {
+        onSuccess: () => {
+          // Webhook yang akan trigger alert OBS, bukan dari sini
+          console.log("Payment success, waiting for webhook...");
+          sendAlert(); 
+        },
+        onPending: () => console.log("Payment pending"),
+        onError: (err: unknown) => console.error("Payment error", err),
+        onClose: () => console.log("Snap closed"),
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Gagal membuat transaksi. Cek console untuk detail.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+    const snapUrl = process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "true"
+    ? "https://app.midtrans.com/snap/snap.js"
+    : "https://app.sandbox.midtrans.com/snap/snap.js";
+
   return (
+    <>
+    <Script
+        src={snapUrl}
+        data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
+      />
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center px-6 py-10">
       <div className="w-full max-w-6xl grid lg:grid-cols-[1.1fr_0.9fr] gap-8">
         <div className="rounded-[36px] border border-zinc-200 bg-white shadow-[0_25px_60px_rgba(15,23,42,0.08)] overflow-hidden">
@@ -97,7 +151,7 @@ export default function TopupPage() {
                 </label>
                 <div className="relative">
                   <span className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 font-medium">
-                    $
+                    Rp.
                   </span>
                   <input
                     type="number"
@@ -147,7 +201,7 @@ export default function TopupPage() {
               </label>
 
               <div className="grid grid-cols-4 gap-4">
-                {[10, 25, 50, 100].map((value) => (
+                {[10000, 25000, 50000, 100000].map((value) => (
                   <button
                     key={value}
                     onClick={() => setAmount(value)}
@@ -157,19 +211,18 @@ export default function TopupPage() {
                         : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
                     }`}
                   >
-                    ${value}
+                    Rp.{value.toLocaleString("id-ID")}
                   </button>
                 ))}
               </div>
             </div>
-
             <div className="pt-4">
               <button
                 onClick={sendDonation}
-                disabled={!connected || !name}
+                disabled={!connected || !name || loading}
                 className="w-full rounded-2xl bg-zinc-900 py-5 text-base font-semibold text-white transition-all hover:bg-zinc-800 hover:shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Send Live Donation Alert
+                {loading ? "Memproses..." : "Bayar & Kirim Alert Donasi"}
               </button>
             </div>
           </div>
@@ -196,7 +249,7 @@ export default function TopupPage() {
                       {name || "Donor Name"}
                     </h2>
                     <p className="text-zinc-300 mt-1">
-                      donated <span className="text-cyan-300 font-semibold">${amount}</span>
+                      donated <span className="text-cyan-300 font-semibold">Rp.{amount}</span>
                     </p>
                   </div>
                 </div>
@@ -227,5 +280,6 @@ export default function TopupPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }
