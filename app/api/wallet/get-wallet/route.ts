@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import jwt from 'jsonwebtoken';
 
 interface JwtPayload {
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
 
-    const { data: wallet, error } = await supabase
+    const { data: wallet, error } = await supabaseAdmin
       .from('wallet')
       .select(`
         *,

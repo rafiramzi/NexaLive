@@ -1,5 +1,4 @@
-import ObsQrOverlay from "../components/qr";
-
+import ObsQrOverlay from "@/app/components/qr";
 export default function OverlayPage() {
   return (
     <main className="w-screen h-screen bg-transparent overflow-hidden relative">

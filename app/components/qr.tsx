@@ -50,8 +50,8 @@ export default function ObsQrOverlay({
   }, [url]);
 
   return (
-      <div className="fixed rounded-3xl backdrop-blur-xl p-6 shadow-2xl flex flex-col items-center gap-4 w-[400px]">
-        <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
+      <div className="bg-black/30 fixed rounded-3xl backdrop-blur-xl p-6 shadow-2xl flex flex-col items-center gap-4 w-[400px]">
+        <div className="bg-white p-5 rounded-2xl border border-white/10">
           <div ref={qrRef} />
         </div>
       </div>

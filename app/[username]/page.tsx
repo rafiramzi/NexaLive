@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import Script from "next/script";
 import { useParams } from "next/navigation";
+import NoUser from "../components/no_user";
 
 declare global {
   interface Window {
@@ -21,6 +22,12 @@ type Creator = {
   avatar_url?: string;
   bio?: string;
 };
+
+interface User {
+  id: string;
+  email: string;
+  username: string;
+}
 
 type QuickAmountPreference = {
   price_1?: number | null;
@@ -125,6 +132,7 @@ export default function TopupPage() {
   const [creatorLoading, setCreatorLoading] = useState(true);
   const [quickAmountPref, setQuickAmountPref] = useState<QuickAmountPreference | null>(null);
   const [showThankYou, setShowThankYou] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
 
   const [name, setName] = useState("");
   const [amount, setAmount] = useState(25000);
@@ -139,6 +147,15 @@ export default function TopupPage() {
     channel.subscribe((status) => setConnected(status === "SUBSCRIBED"));
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); };
+  }, []);
+
+    useEffect(() => {
+    fetch('/api/auth/me')
+      .then((res) => {
+        if (!res.ok) throw new Error('User have not logged in');
+        return res.json();
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   // Fetch creator profile
@@ -183,6 +200,25 @@ export default function TopupPage() {
     setShowThankYou(true);
   };
 
+  const storeTransaction = async () => {
+    try {
+      await fetch("/api/transactions/top-up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          streamer_username: username,
+          donator_user_id: user?.id || null, 
+          donator_name: name,
+          amount,
+          mediashare_link: mediaUrl.trim() || null,
+          message: message.trim() || null,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to store transaction:", err);
+    }
+  }
+
   const sendDonation = async () => {
     if (!name || loading) return;
     setLoading(true);
@@ -196,7 +232,7 @@ export default function TopupPage() {
       if (!res.ok) throw new Error(data.error ?? "Failed");
 
       window.snap.pay(data.token, {
-        onSuccess: () => { sendAlert(); },
+        onSuccess: () => { sendAlert(); storeTransaction(); },
         onPending: () => console.log("Pending"),
         onError: (err: unknown) => console.error("Error", err),
         onClose: () => console.log("Closed"),
@@ -220,13 +256,29 @@ export default function TopupPage() {
     ? creator.display_name.slice(0, 2).toUpperCase()
     : creator?.username?.slice(0, 2).toUpperCase() ?? "??";
 
-  // Dynamic grid cols based on quick amount count
   const gridCols =
     quickAmounts.length <= 3
       ? `grid-cols-${quickAmounts.length}`
       : quickAmounts.length === 4
       ? "grid-cols-4"
       : "grid-cols-5";
+
+  // Tunggu fetch selesai — jangan render NoUser saat masih loading
+  if (creatorLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin" />
+          <p className="text-sm text-zinc-400">Memuat halaman…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Fetch selesai tapi creator tidak ditemukan
+  if (!creator) {
+    return <NoUser />;
+  }
 
   return (
     <>
@@ -237,7 +289,7 @@ export default function TopupPage() {
 
       <ThankYouDialog
         open={showThankYou}
-        creatorUsername={creator?.username ?? username}
+        creatorUsername={creator.username}
         donorName={name}
         amount={amount}
         onClose={() => setShowThankYou(false)}
@@ -249,40 +301,28 @@ export default function TopupPage() {
 
             {/* ── Creator Header ── */}
             <div className="px-8 pt-8 pb-6 border-b border-zinc-100 flex items-center gap-4">
-              {creatorLoading ? (
-                <>
-                  <div className="w-14 h-14 rounded-full bg-zinc-100 animate-pulse flex-shrink-0" />
-                  <div className="space-y-2 flex-1">
-                    <div className="h-4 w-32 bg-zinc-100 rounded animate-pulse" />
-                    <div className="h-3 w-20 bg-zinc-100 rounded animate-pulse" />
-                  </div>
-                </>
+              {creator.avatar_url ? (
+                <img
+                  src={creator.avatar_url}
+                  alt={creator.display_name ?? creator.username}
+                  className="w-14 h-14 rounded-full object-cover ring-2 ring-zinc-100 flex-shrink-0"
+                />
               ) : (
-                <>
-                  {creator?.avatar_url ? (
-                    <img
-                      src={creator.avatar_url}
-                      alt={creator.display_name ?? creator.username}
-                      className="w-14 h-14 rounded-full object-cover ring-2 ring-zinc-100 flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
-                      {initials}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-base font-semibold text-zinc-900 truncate">
-                      {creator?.display_name ?? creator?.username ?? username}
-                    </p>
-                    <p className="text-sm text-zinc-400">@{creator?.username ?? username}</p>
-                    {creator?.bio && (
-                      <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed line-clamp-2">
-                        {creator.bio}
-                      </p>
-                    )}
-                  </div>
-                </>
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
+                  {initials}
+                </div>
               )}
+              <div className="min-w-0 flex-1">
+                <p className="text-base font-semibold text-zinc-900 truncate">
+                  {creator.display_name ?? creator.username}
+                </p>
+                <p className="text-sm text-zinc-400">@{creator.username}</p>
+                {creator.bio && (
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed line-clamp-2">
+                    {creator.bio}
+                  </p>
+                )}
+              </div>
               <div className="ml-auto flex-shrink-0">
                 <ConnectionBadge connected={connected} />
               </div>
@@ -323,8 +363,6 @@ export default function TopupPage() {
                     className="w-full rounded-xl border border-zinc-200 bg-white pl-10 pr-4 py-3 text-sm text-zinc-900 outline-none transition-all focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
                   />
                 </div>
-
-                {/* Quick amounts — dynamic from API or fallback to default */}
                 <div className={`grid ${gridCols} gap-2`}>
                   {quickAmounts.map((value) => (
                     <button

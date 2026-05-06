@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import jwt from 'jsonwebtoken';
 
 
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    const { data: quick_amount_preference, error: userError } = await supabase
+    const { data: quick_amount_preference, error: userError } = await supabaseAdmin
       .from('quick_amount_preference')
       .select('*')
       .eq('user_id', param)
