@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
 // @ts-ignore
 import Midtrans from "midtrans-client";
+
 
 const snap = new Midtrans.Snap({
   isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
@@ -8,13 +11,17 @@ const snap = new Midtrans.Snap({
   clientKey: process.env.MIDTRANS_CLIENT_KEY!,
 });
 
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, amount, message, mediaUrl } = body;
+    const { name, amount, message, mediaUrl, streamerUsername, donatorUserId } = body;
 
-    if (!name || !amount) {
-      return NextResponse.json({ error: "name and amount are required" }, { status: 400 });
+    if (!name || !amount || !streamerUsername) {
+      return NextResponse.json(
+        { error: "name, amount, and streamerUsername are required" },
+        { status: 400 }
+      );
     }
 
     const orderId = `donation-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -27,10 +34,11 @@ export async function POST(req: NextRequest) {
       customer_details: {
         first_name: name,
       },
-      // Simpan metadata di custom_field agar bisa dipakai saat webhook
       custom_field1: message ?? "",
       custom_field2: mediaUrl ?? "",
       custom_field3: name,
+      custom_field4: streamerUsername,        
+      custom_field5: donatorUserId ?? "",    
     };
 
     const transaction = await snap.createTransaction(parameter);
@@ -40,6 +48,8 @@ export async function POST(req: NextRequest) {
       redirect_url: transaction.redirect_url,
       order_id: orderId,
     });
+
+
   } catch (err: any) {
     console.error("[Midtrans] create-transaction error:", err);
     return NextResponse.json({ error: err.message ?? "Internal error" }, { status: 500 });
