@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useParams } from "next/navigation";
 
 type DonationPayload = {
   user: string;
@@ -20,6 +21,8 @@ export default function AlertPage() {
   const rafRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const durationRef = useRef<number>(0);
+  const param = useParams();
+  const userId = param.user_id;
   
 
   const youtubeEmbed = useMemo(() => {
@@ -98,7 +101,7 @@ export default function AlertPage() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("donation-alerts", {
+      .channel(`donation-alerts-${userId}`, {
         config: {
           broadcast: { self: true }, 
         },

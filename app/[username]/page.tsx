@@ -216,9 +216,9 @@ export default function TopupPage() {
 
       window.snap.pay(data.token, {
         onSuccess: () => {
-          recordTransaction();
+          // recordTransaction();
           // DB insert + broadcast handled by Midtrans webhook
-          sendAlert(); // Optimistically show alert without waiting for webhook (optional)
+          // sendAlert(); if webhook error
           setShowThankYou(true);
         },
         onPending: () => console.log("Pending"),

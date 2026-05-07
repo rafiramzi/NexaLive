@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { get } from "http";
 
 function verifySignature(
   orderId: string,
@@ -16,6 +17,7 @@ function verifySignature(
 
 async function broadcastDonation(payload: {
   user: string;
+  streamerId?: string;
   amount: number;
   message?: string;
   mediaUrl?: string;
@@ -31,7 +33,7 @@ async function broadcastDonation(payload: {
       Authorization: `Bearer ${serviceRoleKey}`,
     },
     body: JSON.stringify({
-      messages: [{ topic: "donation-alerts", event: "donation", private: false, payload }],
+      messages: [{ topic: `donation-alerts-${payload.streamerId}`, event: "donation", private: false, payload }],
     }),
   });
 
@@ -88,8 +90,8 @@ async function storeTransaction({
 
   if (!wallet) throw new Error(`Wallet not found for streamer: ${streamerUsername}`);
 
-  // 4. Atomic insert + balance update
- const { error: insertError } = await supabaseAdmin
+  // 4. Insert transaction
+  const { error: insertError } = await supabaseAdmin
     .from("transactions")
     .insert({
       wallet_id: wallet.id,
@@ -99,13 +101,29 @@ async function storeTransaction({
       mediashare_link: mediaUrl ?? null,
       message: message ?? null,
       order_id: orderId,
+      status: "SUCCESS",
     });
 
   if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
+
+  // 5. Update wallet balance
+  const { error: updateError } = await supabaseAdmin
+    .from("wallet")
+    .update({ balance: wallet.balance + amount })
+    .eq("id", wallet.id);
+
+  if (updateError) throw new Error(`Balance update failed: ${updateError.message}`);
+
   return true;
 }
 
-// Production
+function getStreamer(username: string) {
+  return supabaseAdmin
+    .from("users")
+    .select("id")
+    .eq("username", username)
+    .single();
+}
 
 export async function POST(req: NextRequest) {
   console.log("MIDTRANS WEBHOOK HIT");
@@ -120,13 +138,12 @@ export async function POST(req: NextRequest) {
       signature_key,
       transaction_status,
       fraud_status,
-      custom_field1: message,
-      custom_field2: mediaUrl,
-      custom_field3: name,
-      custom_field4: streamerUsername, // 👈 add this when creating Midtrans transaction
-      custom_field5: donatorUserId, // 👈 add this when creating Midtrans transaction
+      custom_field1: streamerUsername,
+      custom_field2: donatorUserId,
+      custom_field3: extraJson,
     } = body;
 
+    // 1. Verify signature
     const isValid = verifySignature(
       order_id,
       status_code,
@@ -150,26 +167,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true, processed: false });
     }
 
-    const amount = Math.round(Number(gross_amount));
-    const donatorName = name ?? "Anonymous";
+    // 3. Guard against test pings / missing streamer
+    if (!streamerUsername) {
+      console.warn("[Webhook] No streamerUsername in payload — likely a test ping, skipping");
+      return NextResponse.json({ received: true, processed: false, reason: "missing_streamer" });
+    }
 
-    // 3. Store transaction in DB
+    // 4. Parse custom_field3: { name, message, mediaUrl }
+    //    customer_details.full_name is NOT returned by Midtrans webhook, so name is encoded here
+    let donatorName = "Anonymous";
+    let message: string | undefined;
+    let mediaUrl: string | undefined;
+    try {
+      const parsed = JSON.parse(extraJson ?? "{}");
+      donatorName = parsed.name || "Anonymous";
+      message = parsed.message || undefined;
+      mediaUrl = parsed.mediaUrl || undefined;
+    } catch {
+      console.warn("[Webhook] Failed to parse custom_field3:", extraJson);
+    }
+
+    const amount = Math.round(Number(gross_amount));
+
+    // 5. Store transaction in DB
     const stored = await storeTransaction({
       orderId: order_id,
       streamerUsername,
       donatorName,
-      donatorUserId,
+      donatorUserId: donatorUserId || undefined,
       amount,
-      message: message || undefined,
-      mediaUrl: mediaUrl || undefined,
+      message,
+      mediaUrl,
     });
 
-    // 4. Broadcast alert (even if duplicate — alert may not have fired)
+    const streamerResult = await getStreamer(streamerUsername);
+    const streamerId = streamerResult.data?.id;
+
+    if (!streamerId) {
+      console.warn(`[Webhook] Streamer not found after storing transaction: ${streamerUsername}`);
+    }
+
+    // 6. Broadcast alert
     await broadcastDonation({
       user: donatorName,
       amount,
-      message: message || undefined,
-      mediaUrl: mediaUrl || undefined,
+      message,
+      mediaUrl,
+      streamerId: streamerId || undefined, 
     });
 
     console.log(`[Webhook] Done — order ${order_id}, stored: ${stored}`);
@@ -180,97 +224,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message ?? "Internal error" }, { status: 500 });
   }
 }
-
-
-// export async function POST(req: NextRequest) {
-//   console.log("MIDTRANS WEBHOOK HIT");
-
-//   try {
-//     const body = await req.json();
-//     console.log("[Webhook] Full body:", JSON.stringify(body, null, 2));
-
-//     const {
-//       order_id,
-//       status_code,
-//       gross_amount,
-//       signature_key,
-//       transaction_status,
-//       fraud_status,
-//       custom_field1: message,
-//       custom_field2: mediaUrl,
-//       custom_field3: name,
-//       custom_field4: streamerUsername,
-//       custom_field5: donatorUserId,
-//     } = body;
-
-//     console.log("[Webhook] Parsed fields:", {
-//       order_id,
-//       status_code,
-//       gross_amount,
-//       transaction_status,
-//       fraud_status,
-//       name,
-//       streamerUsername,
-//       donatorUserId,
-//     });
-
-//     // 1. Verify signature
-//     // const isValid = verifySignature(
-//     //   order_id,
-//     //   status_code,
-//     //   gross_amount,
-//     //   process.env.MIDTRANS_SERVER_KEY!,
-//     //   signature_key
-//     // );
-//     // console.log("[Webhook] Signature valid:", isValid);
-
-//     // if (!isValid) {
-//     //   console.warn("[Webhook] Invalid signature:", order_id);
-//     //   return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-//     // }
-
-//     // 2. Check payment status
-//     const isSuccess =
-//       transaction_status === "settlement" ||
-//       (transaction_status === "capture" && fraud_status === "accept");
-
-//     console.log("[Webhook] isSuccess:", isSuccess, { transaction_status, fraud_status });
-
-//     if (!isSuccess) {
-//       console.log(`[Webhook] Skipped — status: ${transaction_status}`);
-//       return NextResponse.json({ received: true, processed: false });
-//     }
-
-//     const amount = Math.round(Number(gross_amount));
-//     const donatorName = name ?? "Anonymous";
-
-//     // 3. Store transaction
-//     console.log("[Webhook] Storing transaction...");
-//     const stored = await storeTransaction({
-//       orderId: order_id,
-//       streamerUsername,
-//       donatorName,
-//       donatorUserId,
-//       amount,
-//       message: message || undefined,
-//       mediaUrl: mediaUrl || undefined,
-//     });
-//     console.log("[Webhook] Transaction stored:", stored);
-
-//     // 4. Broadcast
-//     console.log("[Webhook] Broadcasting...");
-//     await broadcastDonation({
-//       user: donatorName,
-//       amount,
-//       message: message || undefined,
-//       mediaUrl: mediaUrl || undefined,
-//     });
-//     console.log("[Webhook] Broadcast done");
-
-//     return NextResponse.json({ received: true, processed: true });
-
-//   } catch (err: any) {
-//     console.error("[Webhook] Unhandled error:", err);
-//     return NextResponse.json({ error: err.message ?? "Internal error" }, { status: 500 });
-//   }
-// }

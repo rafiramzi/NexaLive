@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 // @ts-ignore
 import Midtrans from "midtrans-client";
-
 
 const snap = new Midtrans.Snap({
   isProduction: process.env.MIDTRANS_IS_PRODUCTION === "true",
   serverKey: process.env.MIDTRANS_SERVER_KEY!,
   clientKey: process.env.MIDTRANS_CLIENT_KEY!,
 });
-
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,14 +28,20 @@ export async function POST(req: NextRequest) {
         order_id: orderId,
         gross_amount: amount,
       },
-      customer_details: {
-        first_name: name,
-      },
-      custom_field1: message ?? "",
-      custom_field2: mediaUrl ?? "",
-      custom_field3: name,
-      custom_field4: streamerUsername,        
-      custom_field5: donatorUserId ?? "",    
+      // Midtrans only supports 3 custom fields:
+      // custom_field1 → streamerUsername       (required for webhook DB lookup)
+      // custom_field2 → donatorUserId          (optional)
+      // custom_field3 → { name, message, mediaUrl } encoded as JSON
+      //
+      // NOTE: customer_details.full_name is NOT returned in webhook payload,
+      // so we encode the donor name inside custom_field3 instead.
+      custom_field1: streamerUsername,
+      custom_field2: donatorUserId ?? "",
+      custom_field3: JSON.stringify({
+        name: name ?? "",
+        message: message ?? "",
+        mediaUrl: mediaUrl ?? "",
+      }),
     };
 
     const transaction = await snap.createTransaction(parameter);
@@ -48,7 +51,6 @@ export async function POST(req: NextRequest) {
       redirect_url: transaction.redirect_url,
       order_id: orderId,
     });
-
 
   } catch (err: any) {
     console.error("[Midtrans] create-transaction error:", err);
