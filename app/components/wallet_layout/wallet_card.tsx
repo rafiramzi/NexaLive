@@ -80,7 +80,7 @@ export default function WalletCard(){
     return(
         <>
        {wallet === null ? (
-          <div className="mb-10 border border-dashed border-gray-300 rounded-xl p-6 flex items-center justify-between bg-white">
+          <div className="mb-10 border border-dashed border-gray-300 rounded-xl p-6 flex items-center justify-between bg-[#1a1a20]">
             <div>
               <p className="text-sm font-medium text-gray-700 mb-1">Kamu belum punya wallet</p>
               <p className="text-xs text-gray-500">Setup wallet untuk mulai menerima donasi</p>
@@ -93,10 +93,10 @@ export default function WalletCard(){
             </button>
           </div>
         ) : (
-          <div className="mb-10 border border-gray-200 rounded-xl p-6 bg-white">
+          <div className="mb-10 border border-[#2a2a30] rounded-xl p-6 bg-[#1a1a20]">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs text-gray-500 mb-1">Saldo Wallet</p>
+                <p className="text-xs text-[#6b6b78] mb-1">Saldo Wallet</p>
                 <p className="text-2xl font-semibold">{formatRupiah(wallet.balance)}</p>
               </div>
 
@@ -118,7 +118,7 @@ export default function WalletCard(){
 
                 <button
                   onClick={() => router.push('/dashboard/wallet')}
-                  className="text-xs px-3 py-1.5 border border-gray-300 hover:border-gray-400 rounded-md text-gray-600 hover:text-gray-900 transition-colors"
+                  className="text-xs px-3 py-1.5 border border-[#2a2a30] hover:border-[#4a4a58] rounded-md text-[#6b6b78] hover:text-[#e8e8ea] transition-colors"
                 >
                   Kelola
                 </button>
@@ -126,7 +126,7 @@ export default function WalletCard(){
             </div>
 
             {(cashOutError || cashOutSuccess || !canCashOut) && (
-              <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="mt-4 pt-4 border-t border-[#2a2a30]">
                 {cashOutError && <p className="text-xs text-red-500">{cashOutError}</p>}
                 {cashOutSuccess && <p className="text-xs text-emerald-500">✓ Cash out berhasil diproses.</p>}
                 {!canCashOut && !cashOutError && !cashOutSuccess && (
